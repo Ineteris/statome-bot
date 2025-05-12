@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: statome-telegram-bot
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
+    envVars:
+      - key: BOT_TOKEN
+        value: 7367453134:AAFUPFACGmP528DuWEVSM_L9l2ypVnmTKoA
+      - key: CHANNEL_ID
+        value: -1002503054673
