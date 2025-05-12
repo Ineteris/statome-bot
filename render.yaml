@@ -1,7 +1,7 @@
 services:
   - type: web
     name: statome-telegram-bot
-    env: python
+    runtime: python
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python main.py"
     envVars:
