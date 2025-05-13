@@ -113,11 +113,12 @@ telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 scheduler = AsyncIOScheduler()
 scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0, args=[telegram_app])
 
-@telegram_app.post_init
 async def on_startup(app):
     scheduler.start()
     logging.info("🕛 Планировщик задач запущен.")
     await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+
+telegram_app.post_init = on_startup
 
 @app_fastapi.get("/")
 async def healthcheck():
