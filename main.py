@@ -97,6 +97,10 @@ app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 # Планировщик на 00:00 UTC
 scheduler = AsyncIOScheduler()
 scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0, args=[app])
-scheduler.start()
 
+async def on_startup(app):
+    scheduler.start()
+    logging.info("🕛 Планировщик задач запущен.")
+
+app.post_init = on_startup
 app.run_polling()
