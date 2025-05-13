@@ -8,7 +8,6 @@ import os
 
 from telegram.constants import ParseMode
 from fastapi import FastAPI, Request
-from telegram.ext import WebhookHandler
 
 # Настройка логгирования
 logging.basicConfig(level=logging.INFO)
