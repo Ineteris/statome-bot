@@ -58,12 +58,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await store_message(update.effective_chat.id, update.message.message_id)
     await store_message(update.effective_chat.id, sent.message_id)
 
-# Обработка фото
+# Обработка фото с подписью
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]  # самое большое качество
     username = user.username or "нет username"
+    user_caption = update.message.caption or ""
+
     caption = f"Фотоотчёт от {user.full_name} (@{username})"
+    if user_caption:
+        caption += f"\n\n{user_caption}"
 
     await context.bot.send_photo(
         chat_id=CHANNEL_ID,
@@ -77,13 +81,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Задача на очистку сообщений
 async def cleanup_messages(context: ContextTypes.DEFAULT_TYPE):
-    logging.info("\U0001F9F9 Запуск очистки сообщений")
+    logging.info("🧹 Запуск очистки сообщений")
     for chat_id, message_ids in message_log.items():
         for msg_id in message_ids:
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except Exception as e:
-                logging.warning(f"\u26a0\ufe0f Не удалось удалить сообщение {msg_id} в чате {chat_id}: {e}")
+                logging.warning(f"⚠️ Не удалось удалить сообщение {msg_id} в чате {chat_id}: {e}")
     message_log.clear()
 
 # Запуск приложения
