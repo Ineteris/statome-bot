@@ -1,22 +1,21 @@
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import time
 import asyncio
 import logging
 import os
 
-# Настройка логгирования
+# Настройка логов
 logging.basicConfig(level=logging.INFO)
 
-# Получение токенов и ID канала из переменных окружения
+# Получение токена и ID канала
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
-# Хранилище для удаления сообщений
+# Хранилище сообщений
 message_log = {}  # {chat_id: [message_id, ...]}
 
-# Команда /start
+# Стартовая команда
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = update.effective_user.language_code
     message = "Здравствуйте, отправьте ваше видео, фото или текстовый отчёт по работе." \
@@ -24,11 +23,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = await update.message.reply_text(message)
     await store_message(update.effective_chat.id, sent.message_id)
 
-# Хелпер: сохранить message_id
+# Сохранение сообщений
 async def store_message(chat_id: int, message_id: int):
     message_log.setdefault(chat_id, []).append(message_id)
 
-# Обработка видео и видео-файлов
+# Видео и документы
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     video = update.message.video or update.message.document
@@ -45,7 +44,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await store_message(update.effective_chat.id, update.message.message_id)
     await store_message(update.effective_chat.id, sent.message_id)
 
-# Обработка текста
+# Текстовые сообщения
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.username or "нет username"
@@ -58,10 +57,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await store_message(update.effective_chat.id, update.message.message_id)
     await store_message(update.effective_chat.id, sent.message_id)
 
-# Обработка фото с подписью
+# Фото с подписью
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    photo = update.message.photo[-1]  # самое большое качество
+    photo = update.message.photo[-1]
     username = user.username or "нет username"
     user_caption = update.message.caption or ""
 
@@ -79,18 +78,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await store_message(update.effective_chat.id, update.message.message_id)
     await store_message(update.effective_chat.id, sent.message_id)
 
-# Задача на очистку сообщений
+# Очистка всех сохранённых сообщений
 async def cleanup_messages(context: ContextTypes.DEFAULT_TYPE):
-    logging.info("🧹 Запуск очистки сообщений")
+    logging.info("🧹 Очистка сообщений")
     for chat_id, message_ids in message_log.items():
         for msg_id in message_ids:
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except Exception as e:
-                logging.warning(f"⚠️ Не удалось удалить сообщение {msg_id} в чате {chat_id}: {e}")
+                logging.warning(f"Не удалось удалить {msg_id} в чате {chat_id}: {e}")
     message_log.clear()
 
-# Запуск приложения
+# Инициализация приложения
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
