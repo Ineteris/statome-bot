@@ -48,6 +48,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_caption:
         caption += f"\n\n{user_caption}"
 
+    logging.info(f"🎥 Отправка видео от {user.full_name} в канал")
     await context.bot.send_video(
         chat_id=CHANNEL_ID,
         video=video.file_id,
@@ -65,6 +66,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     message = f"Текстовый отчёт от {user.full_name} (@{username}):\n{text}"
 
+    logging.info(f"📝 Отправка текста в канал от {user.full_name}")
     await context.bot.send_message(chat_id=CHANNEL_ID, text=message)
     reply = "Текст получен. Спасибо!" if user.language_code != 'es' else "Texto recibido. ¡Gracias!"
     sent = await update.message.reply_text(reply)
@@ -82,6 +84,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_caption:
         caption += f"\n\n{user_caption}"
 
+    logging.info(f"📸 Отправка фото от {user.full_name} в канал")
     await context.bot.send_photo(
         chat_id=CHANNEL_ID,
         photo=photo.file_id,
@@ -113,13 +116,6 @@ telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 scheduler = AsyncIOScheduler()
 scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0, args=[telegram_app])
 
-async def on_startup(app):
-    scheduler.start()
-    logging.info("🕛 Планировщик задач запущен.")
-    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-
-telegram_app.post_init = on_startup
-
 @app_fastapi.get("/")
 async def healthcheck():
     return {"status": "ok"}
@@ -130,9 +126,15 @@ async def telegram_webhook(request: Request):
     await telegram_app.update_queue.put(Update.de_json(update, telegram_app.bot))
     return {"status": "ok"}
 
+async def main():
+    scheduler.start()
+    logging.info("🕛 Планировщик задач запущен.")
+    await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+    await telegram_app.initialize()
+    await telegram_app.start()
+
 if __name__ == "__main__":
     import uvicorn
+    asyncio.get_event_loop().create_task(main())
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app_fastapi, host="0.0.0.0", port=port)
-
-
