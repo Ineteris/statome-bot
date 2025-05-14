@@ -8,6 +8,7 @@ import os
 
 from telegram.constants import ParseMode
 from fastapi import FastAPI, Request
+import uvicorn
 
 # Настройка логгирования
 logging.basicConfig(level=logging.INFO)
@@ -21,8 +22,8 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # например, https://statome
 message_log = {}  # {chat_id: [message_id, ...]}
 
 app_fastapi = FastAPI()
+scheduler = AsyncIOScheduler()
 
-# Telegram Application
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 # Команда /start
@@ -49,11 +50,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption += f"\n\n{user_caption}"
 
     logging.info(f"🎥 Отправка видео от {user.full_name} в канал")
-    await context.bot.send_video(
-        chat_id=CHANNEL_ID,
-        video=video.file_id,
-        caption=caption
-    )
+    await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption)
     reply = "Отчёт получен. Спасибо!" if user.language_code != 'es' else "Informe recibido. ¡Gracias!"
     sent = await update.message.reply_text(reply)
     await store_message(update.effective_chat.id, update.message.message_id)
@@ -85,11 +82,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption += f"\n\n{user_caption}"
 
     logging.info(f"📸 Отправка фото от {user.full_name} в канал")
-    await context.bot.send_photo(
-        chat_id=CHANNEL_ID,
-        photo=photo.file_id,
-        caption=caption
-    )
+    await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption)
     reply = "Фото получено. Спасибо!" if user.language_code != 'es' else "Foto recibida. ¡Gracias!"
     sent = await update.message.reply_text(reply)
     await store_message(update.effective_chat.id, update.message.message_id)
@@ -112,28 +105,26 @@ telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, 
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-# Планировщик на 00:00 UTC
-scheduler = AsyncIOScheduler()
 scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0, args=[telegram_app])
 
 @app_fastapi.on_event("startup")
-async def on_startup():
+async def startup():
     scheduler.start()
     logging.info("🕛 Планировщик задач запущен.")
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
 @app_fastapi.get("/")
-async def healthcheck():
+async def health():
     return {"status": "ok"}
 
 @app_fastapi.post("/webhook")
-async def telegram_webhook(request: Request):
-    update = await request.json()
-    await telegram_app.update_queue.put(Update.de_json(update, telegram_app.bot))
+async def webhook(request: Request):
+    data = await request.json()
+    update = Update.de_json(data, telegram_app.bot)
+    await telegram_app.update_queue.put(update)
     return {"status": "ok"}
 
 if __name__ == "__main__":
-    import uvicorn
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app_fastapi, host="0.0.0.0", port=port)
