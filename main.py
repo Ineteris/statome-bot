@@ -126,15 +126,14 @@ async def telegram_webhook(request: Request):
     await telegram_app.update_queue.put(Update.de_json(update, telegram_app.bot))
     return {"status": "ok"}
 
-async def main():
+@telegram_app.on_startup
+async def on_startup(app):
     scheduler.start()
     logging.info("🕛 Планировщик задач запущен.")
-    await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-    await telegram_app.initialize()
-    await telegram_app.start()
+    await app.initialize()
+    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
 if __name__ == "__main__":
     import uvicorn
-    asyncio.get_event_loop().create_task(main())
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app_fastapi, host="0.0.0.0", port=port)
