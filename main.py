@@ -116,6 +116,13 @@ telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 scheduler = AsyncIOScheduler()
 scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0, args=[telegram_app])
 
+@app_fastapi.on_event("startup")
+async def on_startup():
+    scheduler.start()
+    logging.info("🕛 Планировщик задач запущен.")
+    await telegram_app.initialize()
+    await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+
 @app_fastapi.get("/")
 async def healthcheck():
     return {"status": "ok"}
@@ -125,13 +132,6 @@ async def telegram_webhook(request: Request):
     update = await request.json()
     await telegram_app.update_queue.put(Update.de_json(update, telegram_app.bot))
     return {"status": "ok"}
-
-@telegram_app.on_startup
-async def on_startup(app):
-    scheduler.start()
-    logging.info("🕛 Планировщик задач запущен.")
-    await app.initialize()
-    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
 if __name__ == "__main__":
     import uvicorn
