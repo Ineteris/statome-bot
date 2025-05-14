@@ -133,6 +133,7 @@ async def on_startup():
     logging.info("🕛 Планировщик задач запущен.")
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+    await telegram_app.start()  # <--- ЭТО ОЧЕНЬ ВАЖНО
 
 if __name__ == "__main__":
     import uvicorn
