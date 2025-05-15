@@ -1,138 +1,49 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime
-import asyncio
-import logging
-import os
 
-from telegram.constants import ParseMode
-from fastapi import FastAPI, Request
-
-# Настройка логгирования
-logging.basicConfig(level=logging.INFO)
-
-# Получение токенов и ID канала и группы из переменных окружения
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")     # Админ-канал для пересылки
-GROUP_ID = os.environ.get("GROUP_ID")           # Группа, где бот работает
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-
-# Хранилища
-message_log = {}  # {chat_id: [message_id, ...]}
-last_report_time = {}  # {user_id: datetime}
-
-app_fastapi = FastAPI()
-telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-# Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != 'private':
-        return
-    lang = update.effective_user.language_code
-    message = "Здравствуйте, отправьте ваше видео, фото или текстовый отчёт по работе." \
-        if lang != 'es' else "Hola, envíame tu video, foto o informe escrito de trabajo."
-    await update.message.reply_text(message)
-
-# Хелперы
-async def store_message(chat_id: int, message_id: int):
-    message_log.setdefault(chat_id, []).append(message_id)
-
-async def update_last_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    last_report_time[user.id] = datetime.utcnow()
-    lines = [f"🟢 Последние отчёты:"]
-    for uid, dt in last_report_time.items():
-        try:
-            user_obj = await context.bot.get_chat(uid)
-            lines.append(f"{user_obj.full_name} — {dt.strftime('%d.%m %H:%M')} UTC")
-        except:
-            continue
-    status_message = "\n".join(lines)
-    pinned = await context.bot.send_message(chat_id=GROUP_ID, text=status_message)
-    await context.bot.pin_chat_message(chat_id=GROUP_ID, message_id=pinned.message_id, disable_notification=True)
-
-# Обработчики
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+Using cached tzlocal-5.3.1-py3-none-any.whl (18 kB)
+Using cached uvloop-0.21.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (4.0 MB)
+Using cached watchfiles-1.0.5-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (454 kB)
+Using cached websockets-15.0.1-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl (182 kB)
+Using cached certifi-2025.4.26-py3-none-any.whl (159 kB)
+Using cached uvicorn-0.34.2-py3-none-any.whl (62 kB)
+Using cached annotated_types-0.7.0-py3-none-any.whl (13 kB)
+Using cached typing_inspection-0.4.0-py3-none-any.whl (14 kB)
+Installing collected packages: websockets, uvloop, tzlocal, typing-extensions, sniffio, pyyaml, python-dotenv, idna, httptools, h11, click, certifi, annotated-types, uvicorn, typing-inspection, pydantic-core, httpcore, apscheduler, anyio, watchfiles, starlette, pydantic, httpx, python-telegram-bot, fastapi
+Successfully installed annotated-types-0.7.0 anyio-4.9.0 apscheduler-3.11.0 certifi-2025.4.26 click-8.2.0 fastapi-0.115.12 h11-0.16.0 httpcore-1.0.9 httptools-0.6.4 httpx-0.25.2 idna-3.10 pydantic-2.11.4 pydantic-core-2.33.2 python-dotenv-1.1.0 python-telegram-bot-20.6 pyyaml-6.0.2 sniffio-1.3.1 starlette-0.46.2 typing-extensions-4.13.2 typing-inspection-0.4.0 tzlocal-5.3.1 uvicorn-0.34.2 uvloop-0.21.0 watchfiles-1.0.5 websockets-15.0.1
+[notice] A new release of pip is available: 24.0 -> 25.1.1
+[notice] To update, run: pip install --upgrade pip
+==> Uploading build...
+==> Uploaded in 9.0s. Compression took 1.0s
+==> Build successful 🎉
+==> Deploying...
+==> Running 'python main.py'
+==> No open ports detected, continuing to scan...
+==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
+/opt/render/project/src/main.py:117: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app_fastapi.on_event("startup")
+INFO:     Started server process [82]
+INFO:     Waiting for application startup.
+INFO:apscheduler.scheduler:Scheduler started
+INFO:root:🕛 Планировщик задач запущен.
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot7367453134:AAFUPFACGmP528DuWEVSM_L9l2ypVnmTKoA/getMe "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot7367453134:AAFUPFACGmP528DuWEVSM_L9l2ypVnmTKoA/setWebhook "HTTP/1.1 200 OK"
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:10000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:58478 - "HEAD / HTTP/1.1" 405 Method Not Allowed
+==> Your service is live 🎉
+INFO:     35.197.118.178:0 - "GET / HTTP/1.1" 200 OK
+ERROR:telegram.ext.Application:No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/opt/render/project/src/.venv/lib/python3.11/site-packages/telegram/ext/_application.py", line 1195, in process_update
+    await coroutine
+  File "/opt/render/project/src/.venv/lib/python3.11/site-packages/telegram/ext/_basehandler.py", line 153, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/main.py", line 91, in handle_text
     if update.effective_chat.id != int(GROUP_ID): return
-
-    user = update.effective_user
-    video = update.message.video or update.message.document
-    username = user.username or "нет username"
-    user_caption = update.message.caption or ""
-
-    caption = f"Отчёт от {user.full_name} (@{username})"
-    if user_caption:
-        caption += f"\n\n{user_caption}"
-
-    await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption)
-    await store_message(update.effective_chat.id, update.message.message_id)
-    await update_last_report(update, context)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != int(GROUP_ID): return
-
-    user = update.effective_user
-    photo = update.message.photo[-1]
-    username = user.username or "нет username"
-    user_caption = update.message.caption or ""
-
-    caption = f"Фотоотчёт от {user.full_name} (@{username})"
-    if user_caption:
-        caption += f"\n\n{user_caption}"
-
-    await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption)
-    await store_message(update.effective_chat.id, update.message.message_id)
-    await update_last_report(update, context)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != int(GROUP_ID): return
-
-    user = update.effective_user
-    username = user.username or "нет username"
-    text = update.message.text
-    message = f"Текстовый отчёт от {user.full_name} (@{username}):\n{text}"
-
-    await context.bot.send_message(chat_id=CHANNEL_ID, text=message)
-    await store_message(update.effective_chat.id, update.message.message_id)
-    await update_last_report(update, context)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-
-# Планировщик
-scheduler = AsyncIOScheduler()
-
-@app_fastapi.get("/")
-async def healthcheck():
-    return {"status": "ok"}
-
-@app_fastapi.post("/webhook")
-async def telegram_webhook(request: Request):
-    update_dict = await request.json()
-    update = Update.de_json(update_dict, telegram_app.bot)
-    await telegram_app.process_update(update)
-    return {"status": "ok"}
-
-@app_fastapi.on_event("startup")
-async def on_startup():
-    scheduler.start()
-    logging.info("🕛 Планировщик задач запущен.")
-    await telegram_app.initialize()
-    await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, handle_video))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-
-async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.info(f"DEBUG: chat_id = {update.effective_chat.id}, title = {update.effective_chat.title}")
-    await update.message.reply_text(f"chat_id = {update.effective_chat.id}")
-
-telegram_app.add_handler(MessageHandler(filters.ALL, debug_handler))
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 10000))
-    uvicorn.run(app_fastapi, host="0.0.0.0", port=port)
+                                   ^^^^^^^^^^^^^
+ValueError: invalid literal for int() with base 10: '-100xxxxxxxxxx'
+INFO:     91.108.5.17:0 - "POST /webhook HTTP/1.1" 200 OK
