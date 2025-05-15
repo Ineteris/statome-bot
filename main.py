@@ -2,105 +2,82 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
-import asyncio
 import logging
 import os
 
 from telegram.constants import ParseMode
 from fastapi import FastAPI, Request
 
-# Настройка логгирования
 logging.basicConfig(level=logging.INFO)
 
-# Получение токенов и ID канала и группы из переменных окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")     # Админ-канал для пересылки
-GROUP_ID = os.environ.get("GROUP_ID")           # Группа, где бот работает
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
+GROUP_ID = int(os.environ.get("GROUP_ID"))
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-# Хранилища
-message_log = {}  # {chat_id: [message_id, ...]}
 last_report_time = {}  # {user_id: datetime}
 
 app_fastapi = FastAPI()
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != 'private':
         return
     lang = update.effective_user.language_code
-    message = "Здравствуйте, отправьте ваше видео, фото или текстовый отчёт по работе." \
-        if lang != 'es' else "Hola, envíame tu video, foto o informe escrito de trabajo."
+    message = "Здравствуйте, отправьте ваше видео, фото или текстовый отчёт по работе.\nПосле отправки он будет автоматически переслан администрации. Спасибо!" \
+        if lang != 'es' else "Hola, envíame tu video, foto o informe escrito de trabajo.\nSerá reenviado automáticamente a la administración. ¡Gracias!"
     await update.message.reply_text(message)
-
-# Хелперы
-async def store_message(chat_id: int, message_id: int):
-    message_log.setdefault(chat_id, []).append(message_id)
 
 async def update_last_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     last_report_time[user.id] = datetime.utcnow()
-    lines = [f"🟢 Последние отчёты:"]
-    for uid, dt in last_report_time.items():
+    lines = [f"🟢 Последние отчёты / Últimos informes:"]
+    for uid, dt in sorted(last_report_time.items(), key=lambda x: x[1], reverse=True):
         try:
             user_obj = await context.bot.get_chat(uid)
             lines.append(f"{user_obj.full_name} — {dt.strftime('%d.%m %H:%M')} UTC")
         except:
             continue
     status_message = "\n".join(lines)
-    pinned = await context.bot.send_message(chat_id=update.effective_chat.id, text=status_message)
-    await context.bot.pin_chat_message(chat_id=update.effective_chat.id, message_id=pinned.message_id, disable_notification=True)
+    await context.bot.send_message(chat_id=GROUP_ID, text=status_message)
 
-# Обработчики
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.info(f"chat_id = {update.effective_chat.id}")  # ВРЕМЕННО для определения GROUP_ID
-
+async def process_report(update: Update, context: ContextTypes.DEFAULT_TYPE, media_type: str):
     user = update.effective_user
-    video = update.message.video or update.message.document
     username = user.username or "нет username"
-    user_caption = update.message.caption or ""
-
     caption = f"Отчёт от {user.full_name} (@{username})"
+    user_caption = update.message.caption or ""
     if user_caption:
         caption += f"\n\n{user_caption}"
 
-    await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption)
-    await store_message(update.effective_chat.id, update.message.message_id)
+    if media_type == "video":
+        video = update.message.video or update.message.document
+        await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption)
+    elif media_type == "photo":
+        photo = update.message.photo[-1]
+        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption)
+    elif media_type == "text":
+        text = update.message.text
+        message = f"Текстовый отчёт от {user.full_name} (@{username}):\n{text}"
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=message)
+
+    reply = "Спасибо, отчёт получен." if user.language_code != 'es' else "Gracias, informe recibido."
+    await update.message.reply_text(reply)
+
     await update_last_report(update, context)
     await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != GROUP_ID: return
+    await process_report(update, context, media_type="video")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.info(f"chat_id = {update.effective_chat.id}")  # ВРЕМЕННО для определения GROUP_ID
-
-    user = update.effective_user
-    photo = update.message.photo[-1]
-    username = user.username or "нет username"
-    user_caption = update.message.caption or ""
-
-    caption = f"Фотоотчёт от {user.full_name} (@{username})"
-    if user_caption:
-        caption += f"\n\n{user_caption}"
-
-    await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption)
-    await store_message(update.effective_chat.id, update.message.message_id)
-    await update_last_report(update, context)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+    if update.effective_chat.id != GROUP_ID: return
+    await process_report(update, context, media_type="photo")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.info(f"chat_id = {update.effective_chat.id}")  # ВРЕМЕННО для определения GROUP_ID
+    if update.effective_chat.id != GROUP_ID: return
+    await process_report(update, context, media_type="text")
 
-    user = update.effective_user
-    username = user.username or "нет username"
-    text = update.message.text
-    message = f"Текстовый отчёт от {user.full_name} (@{username}):\n{text}"
-
-    await context.bot.send_message(chat_id=CHANNEL_ID, text=message)
-    await store_message(update.effective_chat.id, update.message.message_id)
-    await update_last_report(update, context)
-    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-
-# Планировщик
 scheduler = AsyncIOScheduler()
 
 @app_fastapi.get("/")
