@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import time
+from datetime import datetime
 import asyncio
 import logging
 import os
@@ -96,12 +96,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await store_message(update.effective_chat.id, sent.message_id)
 
 # Задача на очистку сообщений
-async def cleanup_messages(context: ContextTypes.DEFAULT_TYPE):
-    logging.info("🧹 Запуск очистки сообщений")
+async def cleanup_messages():
+    logging.info("🧹 Очистка сообщений вызвана по расписанию")
+    bot = telegram_app.bot
     for chat_id, message_ids in message_log.items():
         for msg_id in message_ids:
             try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                await bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except Exception as e:
                 logging.warning(f"⚠️ Не удалось удалить сообщение {msg_id} в чате {chat_id}: {e}")
     message_log.clear()
@@ -112,9 +113,9 @@ telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, 
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-# Планировщик на 00:00 UTC
+# Планировщик
 scheduler = AsyncIOScheduler()
-scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0, args=[telegram_app])
+scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0)
 
 @app_fastapi.get("/")
 async def healthcheck():
@@ -133,7 +134,6 @@ async def on_startup():
     logging.info("🕛 Планировщик задач запущен.")
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-    await telegram_app.start()  # <--- ЭТО ОЧЕНЬ ВАЖНО
 
 if __name__ == "__main__":
     import uvicorn
