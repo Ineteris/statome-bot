@@ -126,6 +126,12 @@ telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, 
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
+async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info(f"DEBUG: chat_id = {update.effective_chat.id}, title = {update.effective_chat.title}")
+    await update.message.reply_text(f"Ваш ID: {update.effective_chat.id}")
+
+telegram_app.add_handler(MessageHandler(filters.ALL, debug_handler))
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 10000))
