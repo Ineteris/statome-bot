@@ -128,7 +128,7 @@ telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
 async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"DEBUG: chat_id = {update.effective_chat.id}, title = {update.effective_chat.title}")
-    await update.message.reply_text(f"Ваш ID: {update.effective_chat.id}")
+    await update.message.reply_text(f"chat_id = {update.effective_chat.id}")
 
 telegram_app.add_handler(MessageHandler(filters.ALL, debug_handler))
 
