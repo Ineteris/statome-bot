@@ -12,33 +12,50 @@ from fastapi import FastAPI, Request
 # Настройка логгирования
 logging.basicConfig(level=logging.INFO)
 
-# Получение токенов и ID канала из переменных окружения
+# Получение токенов и ID канала и группы из переменных окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # например, https://statome-bot.onrender.com
+CHANNEL_ID = os.environ.get("CHANNEL_ID")     # Админ-канал для пересылки
+GROUP_ID = os.environ.get("GROUP_ID")           # Группа, где бот работает
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-# Хранилище для удаления сообщений
+# Хранилища
 message_log = {}  # {chat_id: [message_id, ...]}
+last_report_time = {}  # {user_id: datetime}
 
 app_fastapi = FastAPI()
-
-# Telegram Application
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != 'private':
+        return
     lang = update.effective_user.language_code
     message = "Здравствуйте, отправьте ваше видео, фото или текстовый отчёт по работе." \
         if lang != 'es' else "Hola, envíame tu video, foto o informe escrito de trabajo."
-    sent = await update.message.reply_text(message)
-    await store_message(update.effective_chat.id, sent.message_id)
+    await update.message.reply_text(message)
 
-# Хелпер: сохранить message_id
+# Хелперы
 async def store_message(chat_id: int, message_id: int):
     message_log.setdefault(chat_id, []).append(message_id)
 
-# Обработка видео и видео-документов с подписью
+async def update_last_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    last_report_time[user.id] = datetime.utcnow()
+    lines = [f"🟢 Последние отчёты:"]
+    for uid, dt in last_report_time.items():
+        try:
+            user_obj = await context.bot.get_chat(uid)
+            lines.append(f"{user_obj.full_name} — {dt.strftime('%d.%m %H:%M')} UTC")
+        except:
+            continue
+    status_message = "\n".join(lines)
+    pinned = await context.bot.send_message(chat_id=GROUP_ID, text=status_message)
+    await context.bot.pin_chat_message(chat_id=GROUP_ID, message_id=pinned.message_id, disable_notification=True)
+
+# Обработчики
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != int(GROUP_ID): return
+
     user = update.effective_user
     video = update.message.video or update.message.document
     username = user.username or "нет username"
@@ -48,35 +65,16 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_caption:
         caption += f"\n\n{user_caption}"
 
-    logging.info(f"🎥 Отправка видео от {user.full_name} в канал")
-    await context.bot.send_video(
-        chat_id=CHANNEL_ID,
-        video=video.file_id,
-        caption=caption
-    )
-    reply = "Отчёт получен. Спасибо!" if user.language_code != 'es' else "Informe recibido. ¡Gracias!"
-    sent = await update.message.reply_text(reply)
+    await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption)
     await store_message(update.effective_chat.id, update.message.message_id)
-    await store_message(update.effective_chat.id, sent.message_id)
+    await update_last_report(update, context)
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
-# Обработка текста
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    username = user.username or "нет username"
-    text = update.message.text
-    message = f"Текстовый отчёт от {user.full_name} (@{username}):\n{text}"
-
-    logging.info(f"📝 Отправка текста в канал от {user.full_name}")
-    await context.bot.send_message(chat_id=CHANNEL_ID, text=message)
-    reply = "Текст получен. Спасибо!" if user.language_code != 'es' else "Texto recibido. ¡Gracias!"
-    sent = await update.message.reply_text(reply)
-    await store_message(update.effective_chat.id, update.message.message_id)
-    await store_message(update.effective_chat.id, sent.message_id)
-
-# Обработка фото с подписью
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != int(GROUP_ID): return
+
     user = update.effective_user
-    photo = update.message.photo[-1]  # самое большое качество
+    photo = update.message.photo[-1]
     username = user.username or "нет username"
     user_caption = update.message.caption or ""
 
@@ -84,38 +82,26 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_caption:
         caption += f"\n\n{user_caption}"
 
-    logging.info(f"📸 Отправка фото от {user.full_name} в канал")
-    await context.bot.send_photo(
-        chat_id=CHANNEL_ID,
-        photo=photo.file_id,
-        caption=caption
-    )
-    reply = "Фото получено. Спасибо!" if user.language_code != 'es' else "Foto recibida. ¡Gracias!"
-    sent = await update.message.reply_text(reply)
+    await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption)
     await store_message(update.effective_chat.id, update.message.message_id)
-    await store_message(update.effective_chat.id, sent.message_id)
+    await update_last_report(update, context)
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
-# Задача на очистку сообщений
-async def cleanup_messages():
-    logging.info("🧹 Очистка сообщений вызвана по расписанию")
-    bot = telegram_app.bot
-    for chat_id, message_ids in message_log.items():
-        for msg_id in message_ids:
-            try:
-                await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            except Exception as e:
-                logging.warning(f"⚠️ Не удалось удалить сообщение {msg_id} в чате {chat_id}: {e}")
-    message_log.clear()
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != int(GROUP_ID): return
 
-# Обработчики
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, handle_video))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    user = update.effective_user
+    username = user.username or "нет username"
+    text = update.message.text
+    message = f"Текстовый отчёт от {user.full_name} (@{username}):\n{text}"
+
+    await context.bot.send_message(chat_id=CHANNEL_ID, text=message)
+    await store_message(update.effective_chat.id, update.message.message_id)
+    await update_last_report(update, context)
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
 
 # Планировщик
 scheduler = AsyncIOScheduler()
-scheduler.add_job(cleanup_messages, trigger='cron', hour=0, minute=0)
 
 @app_fastapi.get("/")
 async def healthcheck():
@@ -134,6 +120,11 @@ async def on_startup():
     logging.info("🕛 Планировщик задач запущен.")
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, handle_video))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
 if __name__ == "__main__":
     import uvicorn
