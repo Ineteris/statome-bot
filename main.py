@@ -55,27 +55,26 @@ async def update_last_report(update: Update, context: ContextTypes.DEFAULT_TYPE)
     last_report_message_id = msg.message_id
 
 async def daily_clear_chat(context: ContextTypes.DEFAULT_TYPE):
-    global last_report_message_id
-    logging.info("🧹 Запуск ежедневной очистки сообщений группы")
-    await context.bot.send_message(GROUP_ID, "Очистка завершена. Обновлён список отчётности сотрудников.")
-    if last_report_message_id:
-        await context.bot.pin_chat_message(chat_id=GROUP_ID, message_id=last_report_message_id, disable_notification=True)
+    global last_report_time
+    logging.info("🧹 Запуск ежедневной очистки отчётной информации")
+    last_report_time = {}  # Сброс состояния
+    await context.bot.send_message(GROUP_ID, "Список отчётности сотрудников обнулён в 00:00. Ждём отчёты сегодня!")
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media_type: str):
     user = update.effective_user
     username = f"@{user.username}" if user.username else None
     custom_name = USER_MAP.get(username, user.full_name)
     caption_text = update.message.caption or update.message.text or ""
-    caption = f"**{custom_name}** ({username})\n{caption_text}"
+    caption = f"<b>{custom_name}</b> ({username})\n{caption_text}"
 
     if media_type == "video":
         video = update.message.video or update.message.document
-        await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
+        await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption, parse_mode=ParseMode.HTML)
     elif media_type == "photo":
         photo = update.message.photo[-1]
-        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
+        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption, parse_mode=ParseMode.HTML)
     elif media_type == "text":
-        await context.bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.MARKDOWN)
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.HTML)
 
     await update_last_report(update, context)
 
