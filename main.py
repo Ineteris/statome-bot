@@ -25,7 +25,7 @@ USER_MAP = {
 
 last_report_time = {}  # {user_id: datetime}
 last_message_ids = {}  # {user_id: message_id}
-report_users_today = set()
+report_users_today = {}  # {user_id: (name, timestamp)}
 
 app_fastapi = FastAPI()
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -59,7 +59,9 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media
 
     if sent:
         last_message_ids[update.effective_user.id] = sent.message_id
-        report_users_today.add(update.effective_user.id)
+        now = datetime.now()
+        report_users_today[update.effective_user.id] = (custom_name, now.strftime("%H:%M"))
+        await update.message.reply_text("✅ Отчёт получен. Спасибо!")
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_media(update, context, "video")
@@ -90,30 +92,23 @@ async def last_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def daily_clear_chat(context: ContextTypes.DEFAULT_TYPE):
     logging.info("🧹 Запуск ежедневной очистки сообщений группы")
-    async for msg in context.bot.get_chat_history(GROUP_ID):
-        try:
-            await context.bot.delete_message(chat_id=GROUP_ID, message_id=msg.message_id)
-        except:
-            continue
-    report_users_today.clear()
-    await context.bot.send_message(GROUP_ID, "✅ Чат очищен. Отчёты можно продолжать отправлять.")
-
-async def daily_report_reminder(context: ContextTypes.DEFAULT_TYPE):
-    all_user_ids = list(USER_MAP.keys())
-    notified = []
-    for tg_name, full_name in USER_MAP.items():
-        user = next((u for u in context.bot_data.values() if u.username and f"@{u.username}" == tg_name), None)
-        if user and user.id not in report_users_today:
+    try:
+        async for msg in context.bot.get_chat_history(GROUP_ID):
             try:
-                await context.bot.send_message(user.id, "⚠️ Напоминание: вы не отправили отчёт сегодня. Пожалуйста, не забудьте.")
-                notified.append(tg_name)
+                await context.bot.delete_message(chat_id=GROUP_ID, message_id=msg.message_id)
             except:
                 continue
-    logging.info(f"🔔 Уведомления отправлены: {notified}")
+        message_lines = ["📋 *Сегодняшние отчёты:*\n"]
+        for name, time in report_users_today.values():
+            message_lines.append(f"• {name} — {time}")
+        await context.bot.send_message(GROUP_ID, "\n".join(message_lines), parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logging.warning(f"Ошибка при очистке чата: {e}")
+    finally:
+        report_users_today.clear()
 
 scheduler = AsyncIOScheduler()
 scheduler.add_job(daily_clear_chat, 'cron', hour=0, minute=0, args=[telegram_app])
-scheduler.add_job(daily_report_reminder, 'cron', hour=21, minute=0, args=[telegram_app])
 
 @app_fastapi.get("/")
 async def healthcheck():
