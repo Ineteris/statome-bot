@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
@@ -23,9 +23,9 @@ USER_MAP = {
     "@ViktorTiko": "A00008-VIKTOR TIKHONYCHEV"
 }
 
-last_report_time = {}  # {user_id: datetime}
-last_message_ids = {}  # {user_id: message_id}
-report_users_today = {}  # {user_id: (name, timestamp)}
+last_report_time = {}
+last_message_ids = {}
+report_users_today = {}
 
 app_fastapi = FastAPI()
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -36,7 +36,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = update.effective_user.language_code
     message = "Здравствуйте, отправьте ваше видео, фото или текстовый отчёт по работе." \
         if lang != 'es' else "Hola, envíame tu video, foto o informe escrito de trabajo."
-    await update.message.reply_text(message)
+    keyboard = [["/last"]]
+    markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(message, reply_markup=markup)
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media_type: str):
     user = update.effective_user
@@ -49,11 +51,9 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media
     if media_type == "video":
         video = update.message.video or update.message.document
         sent = await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
-
     elif media_type == "photo":
         photo = update.message.photo[-1]
         sent = await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
-
     elif media_type == "text":
         sent = await context.bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.MARKDOWN)
 
@@ -98,10 +98,6 @@ async def daily_clear_chat(context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.delete_message(chat_id=GROUP_ID, message_id=msg.message_id)
             except:
                 continue
-        message_lines = ["📋 *Сегодняшние отчёты:*\n"]
-        for name, time in report_users_today.values():
-            message_lines.append(f"• {name} — {time}")
-        await context.bot.send_message(GROUP_ID, "\n".join(message_lines), parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         logging.warning(f"Ошибка при очистке чата: {e}")
     finally:
