@@ -40,7 +40,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media_type: str):
-    user = update.effective_user
+    user = update.message.forward_from or update.effective_user
     username = f"@{user.username}" if user.username else None
     custom_name = USER_MAP.get(username, user.full_name)
     caption_text = update.message.caption or update.message.text or ""
