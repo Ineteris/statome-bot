@@ -5,17 +5,21 @@ from datetime import datetime
 import asyncio
 import logging
 import os
+import re
 
 from telegram.constants import ParseMode
 from fastapi import FastAPI, Request
 
+# Логирование
 logging.basicConfig(level=logging.INFO)
 
+# Переменные среды
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")  # STATOME | ADMINISTRACION | PARTES
-GROUP_ID = os.environ.get("GROUP_ID")      # STATOME | PARTES DE TRABAJO | BOT
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
+GROUP_ID = os.environ.get("GROUP_ID")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
+# Отображение имён сотрудников
 USER_MAP = {
     "@CarlosPastorSempere": "00001-PASTOR SEMPERE, CARLOS",
     "@DanAkcerman": "00003-MONIN, DANILL",
@@ -24,15 +28,20 @@ USER_MAP = {
     "@OlegDokukin": "00004-DOKUKIN, OLEH"
 }
 
-last_report_time = {}
-last_message_ids = {}
-report_users_today = {}
+# Хранилище отчётов
+last_report_time = {}       # {user_id: datetime}
+last_message_ids = {}       # {user_id: message_id}
+report_users_today = {}     # {user_id: (name, time)}
 
+# Объекты FastAPI и Telegram
 app_fastapi = FastAPI()
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+# 🔒 Экранирование Markdown символов
+def escape_markdown(text: str) -> str:
+    return re.sub(r'([_*[\]()~`>#+=|{}.!\\-])', r'\\\1', text)
 
-# ▶️ START
+# Стартовое сообщение
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != 'private':
         return
@@ -44,18 +53,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(message)
 
-
-# 💬 Обработка всех типов сообщений
+# Обработка медиа
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media_type: str):
-    user = update.message.forward_from or update.effective_user
-    if not user:
-        await update.message.reply_text("❌ Не удалось определить отправителя отчёта.")
-        return
+    user = update.effective_user
+    username = f"@{user.username}" if user.username else ""
+    custom_name = USER_MAP.get(username, user.full_name)
 
-    username = f"@{user.username}" if user.username else None
-    custom_name = USER_MAP.get(username, user.full_name or "Без имени")
     caption_text = update.message.caption or update.message.text or ""
-    caption = f"*{custom_name}* ({username})\n{caption_text}" if username else f"*{custom_name}*\n{caption_text}"
+    escaped_text = escape_markdown(caption_text)
+    escaped_name = escape_markdown(custom_name)
+    caption = f"*{escaped_name}* ({username})\n{escaped_text}" if username else f"*{escaped_name}*\n{escaped_text}"
 
     sent = None
     try:
@@ -69,19 +76,16 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media
 
         elif media_type == "text":
             sent = await context.bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.MARKDOWN)
-
-        if sent:
-            last_message_ids[user.id] = sent.message_id
-            now = datetime.now()
-            report_users_today[user.id] = (custom_name, now.strftime("%H:%M"))
-            await update.message.reply_text("✅ Отчёт получен. Спасибо!")
-
     except Exception as e:
         logging.error(f"Ошибка при отправке сообщения: {e}")
-        await update.message.reply_text("⚠️ Произошла ошибка при обработке отчёта.")
 
+    if sent:
+        last_message_ids[update.effective_user.id] = sent.message_id
+        now = datetime.now()
+        report_users_today[update.effective_user.id] = (custom_name, now.strftime("%H:%M"))
+        await update.message.reply_text("✅ Отчёт получен. Спасибо!")
 
-# 👇 Обработчики по типам
+# Обработчики типов сообщений
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_media(update, context, "video")
 
@@ -91,8 +95,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_media(update, context, "text")
 
-
-# 🔁 Команда /last — переслать последний отчёт пользователю
+# Команда /last — переслать последний отчёт
 async def last_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     msg_id = last_message_ids.get(user_id)
@@ -111,8 +114,7 @@ async def last_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.warning(f"Не удалось переслать отчёт: {e}")
         await update.message.reply_text("⚠️ Не удалось получить отчёт.")
 
-
-# 🧹 Очистка чата
+# Очистка группы
 async def daily_clear_chat(context: ContextTypes.DEFAULT_TYPE):
     logging.info("🧹 Запуск ежедневной очистки сообщений группы")
     try:
@@ -126,13 +128,11 @@ async def daily_clear_chat(context: ContextTypes.DEFAULT_TYPE):
     finally:
         report_users_today.clear()
 
-
-# 🗓️ Планировщик
+# Планировщик
 scheduler = AsyncIOScheduler()
 scheduler.add_job(daily_clear_chat, 'cron', hour=0, minute=0, args=[telegram_app])
 
-
-# 🌐 FastAPI endpoint
+# Webhook маршруты
 @app_fastapi.get("/")
 async def healthcheck():
     return {"status": "ok"}
@@ -144,8 +144,6 @@ async def telegram_webhook(request: Request):
     await telegram_app.process_update(update)
     return {"status": "ok"}
 
-
-# 🚀 Запуск
 @app_fastapi.on_event("startup")
 async def on_startup():
     scheduler.start()
@@ -153,12 +151,14 @@ async def on_startup():
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
+# Регистрация хендлеров
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CommandHandler("last", last_report))
 telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, handle_video))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
+# Запуск
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 10000))
