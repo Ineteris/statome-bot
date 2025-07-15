@@ -1,10 +1,12 @@
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from telegram.constants import ParseMode
-from fastapi import FastAPI, Request
 from datetime import datetime
+from fastapi.responses import Response
+from fastapi import FastAPI, Request
+from telegram.constants import ParseMode
 import logging
+import asyncio
 import os
 
 logging.basicConfig(level=logging.INFO)
@@ -18,11 +20,11 @@ USER_MAP = {
     "@CarlosPastorSempere": "00001-PASTOR SEMPERE, CARLOS",
     "@DanAkcerman": "00003-MONIN, DANILL",
     "@Oleg_dokukin": "00004-DOKUKIN, OLEH",
-    "@ViktorTiko": "A00008-VIKTOR TIKHONYCHEV",
     "@OlegDokukin": "00004-DOKUKIN, OLEH",
-    "@Oleg_dokukin": "00004-DOKUKIN, OLEH"
+    "@ViktorTiko": "A00008-VIKTOR TIKHONYCHEV"
 }
 
+last_report_time = {}  # {user_id: datetime}
 last_message_ids = {}  # {user_id: message_id}
 report_users_today = {}  # {user_id: (name, timestamp)}
 
@@ -45,27 +47,27 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media
     username = f"@{user.username}" if user.username else None
     custom_name = USER_MAP.get(username, user.full_name)
     caption_text = update.message.caption or update.message.text or ""
-    safe_caption = caption_text.replace("(", "\\(").replace(")", "\\)").replace("*", "\\*").replace("_", "\\_")
-
-    caption = f"*{custom_name}* ({username})\n{safe_caption}"
+    try:
+        caption = f"**{custom_name}** ({username})\n{caption_text}"
+    except Exception as e:
+        logging.error(f"Ошибка форматирования caption: {e}")
+        caption = caption_text
 
     sent = None
     try:
         if media_type == "video":
             video = update.message.video or update.message.document
-            sent = await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN_V2)
+            sent = await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
 
         elif media_type == "photo":
             photo = update.message.photo[-1]
-            sent = await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN_V2)
+            sent = await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
 
         elif media_type == "text":
-            sent = await context.bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.MARKDOWN_V2)
+            sent = await context.bot.send_message(chat_id=CHANNEL_ID, text=caption, parse_mode=ParseMode.MARKDOWN)
 
     except Exception as e:
         logging.error(f"Ошибка при отправке сообщения: {e}")
-        await update.message.reply_text("⚠️ Ошибка при отправке. Проверьте формат сообщения.")
-        return
 
     if sent:
         last_message_ids[update.effective_user.id] = sent.message_id
@@ -111,17 +113,7 @@ async def daily_clear_chat(context: ContextTypes.DEFAULT_TYPE):
     finally:
         report_users_today.clear()
 
-# 🛠️ ОБРАБОТЧИК ОШИБОК
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logging.error("❌ Exception while handling update:", exc_info=context.error)
-    if update and hasattr(update, "message"):
-        try:
-            await update.message.reply_text("⚠️ Произошла ошибка при обработке. Попробуйте позже.")
-        except:
-            pass
-
-scheduler = AsyncIOScheduler()
-scheduler.add_job(daily_clear_chat, 'cron', hour=0, minute=0, args=[telegram_app])
+# === Webhook endpoints ===
 
 @app_fastapi.get("/")
 async def healthcheck():
@@ -134,6 +126,12 @@ async def telegram_webhook(request: Request):
     await telegram_app.process_update(update)
     return {"status": "ok"}
 
+@app_fastapi.head("/webhook")
+async def webhook_head():
+    return Response(status_code=200)
+
+# === Startup tasks ===
+
 @app_fastapi.on_event("startup")
 async def on_startup():
     scheduler.start()
@@ -141,12 +139,15 @@ async def on_startup():
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
+# === Handlers ===
+
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CommandHandler("last", last_report))
 telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, handle_video))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-telegram_app.add_error_handler(error_handler)
+
+# === Run ===
 
 if __name__ == "__main__":
     import uvicorn
