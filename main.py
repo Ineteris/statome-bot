@@ -2,12 +2,12 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime
-from fastapi.responses import Response
-from fastapi import FastAPI, Request
-from telegram.constants import ParseMode
-import logging
 import asyncio
+import logging
 import os
+
+from telegram.constants import ParseMode
+from fastapi import FastAPI, Request
 
 logging.basicConfig(level=logging.INFO)
 
@@ -24,12 +24,15 @@ USER_MAP = {
     "@ViktorTiko": "A00008-VIKTOR TIKHONYCHEV"
 }
 
-last_report_time = {}  # {user_id: datetime}
-last_message_ids = {}  # {user_id: message_id}
-report_users_today = {}  # {user_id: (name, timestamp)}
+last_report_time = {}
+last_message_ids = {}
+report_users_today = {}
 
 app_fastapi = FastAPI()
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+# 🔧 ВАЖНО: создаём scheduler
+scheduler = AsyncIOScheduler()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != 'private':
@@ -47,11 +50,10 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media
     username = f"@{user.username}" if user.username else None
     custom_name = USER_MAP.get(username, user.full_name)
     caption_text = update.message.caption or update.message.text or ""
-    try:
-        caption = f"**{custom_name}** ({username})\n{caption_text}"
-    except Exception as e:
-        logging.error(f"Ошибка форматирования caption: {e}")
-        caption = caption_text
+
+    # 🧼 Очистка caption от некорректных символов
+    safe_caption = caption_text.replace("(", "\\(").replace(")", "\\)").replace("[", "\\[").replace("]", "\\]")
+    caption = f"**{custom_name}** ({username})\n{safe_caption}"
 
     sent = None
     try:
@@ -68,6 +70,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE, media
 
     except Exception as e:
         logging.error(f"Ошибка при отправке сообщения: {e}")
+        await update.message.reply_text("⚠️ Не удалось переслать отчёт. Попробуйте снова.")
 
     if sent:
         last_message_ids[update.effective_user.id] = sent.message_id
@@ -87,9 +90,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def last_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     msg_id = last_message_ids.get(user_id)
+
     if not msg_id:
         await update.message.reply_text("❌ Ваш последний отчёт не найден.")
         return
+
     try:
         await context.bot.copy_message(
             chat_id=user_id,
@@ -113,7 +118,7 @@ async def daily_clear_chat(context: ContextTypes.DEFAULT_TYPE):
     finally:
         report_users_today.clear()
 
-# === Webhook endpoints ===
+scheduler.add_job(daily_clear_chat, 'cron', hour=0, minute=0, args=[telegram_app])
 
 @app_fastapi.get("/")
 async def healthcheck():
@@ -126,28 +131,18 @@ async def telegram_webhook(request: Request):
     await telegram_app.process_update(update)
     return {"status": "ok"}
 
-@app_fastapi.head("/webhook")
-async def webhook_head():
-    return Response(status_code=200)
-
-# === Startup tasks ===
-
 @app_fastapi.on_event("startup")
 async def on_startup():
-    scheduler.start()
+    scheduler.start()  # ← теперь переменная определена
     logging.info("🕛 Планировщик задач запущен.")
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-
-# === Handlers ===
 
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CommandHandler("last", last_report))
 telegram_app.add_handler(MessageHandler(filters.VIDEO | filters.Document.VIDEO, handle_video))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-
-# === Run ===
 
 if __name__ == "__main__":
     import uvicorn
